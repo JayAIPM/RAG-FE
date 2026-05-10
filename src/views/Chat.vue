@@ -1,264 +1,588 @@
 <template>
-  <div class="flex h-full">
-    <div class="w-72 border-r border-gray-200 flex flex-col">
-      <div class="p-4 border-b border-gray-200">
-        <h3 class="font-semibold mb-3">知识库</h3>
-        <div class="space-y-2">
-          <div
-            v-for="kb in knowledgeList"
-            :key="kb._id"
-            class="flex items-center gap-2 p-2 rounded cursor-pointer"
-            :class="{ 'bg-primary/10': selectedKnowledgeIds.includes(kb._id) }"
-            @click="toggleKnowledge(kb._id)"
-          >
-            <el-checkbox
-              :checked="selectedKnowledgeIds.includes(kb._id)"
-              @change="toggleKnowledge(kb._id)"
-            />
-            <span class="text-sm truncate">{{ kb.name }}</span>
-          </div>
-        </div>
-      </div>
-      
-      <div class="p-4 border-b border-gray-200">
-        <h3 class="font-semibold mb-3">对话历史</h3>
-        <div class="space-y-2 max-h-80 overflow-auto">
-          <div
-            v-for="chat in chatHistory"
-            :key="chat._id"
-            class="p-2 rounded cursor-pointer hover:bg-gray-100"
-            :class="{ 'bg-gray-100': currentChatId === chat._id }"
-            @click="loadChat(chat._id)"
-          >
-            <div class="text-sm truncate">{{ chat.title }}</div>
-            <div class="text-xs text-gray-400">{{ formatTime(chat.updatedAt) }}</div>
-          </div>
-          <div v-if="chatHistory.length === 0" class="text-center text-gray-400 py-4">
-            暂无对话
-          </div>
-        </div>
-      </div>
-      
-      <div class="p-4 mt-auto">
-        <el-button class="w-full" @click="newChat">
-          <component :is="icons.Plus" class="w-5 h-5 mr-2" />
-          新建对话
-        </el-button>
-      </div>
+  <div class="chat-content">
+    <div class="page-header">
+      <h1 class="page-title">智能问答</h1>
+      <p class="page-subtitle">基于知识库的智能问答助手</p>
     </div>
-    
-    <div class="flex-1 flex flex-col">
-      <div class="h-12 px-4 flex items-center justify-between border-b border-gray-200">
-        <span class="font-semibold">
-          {{ currentChat?.title || '智能问答' }}
-          <span v-if="selectedKnowledgeIds.length > 0" class="text-sm text-gray-500 ml-2">
-            ({{ selectedKnowledgeIds.length }}个知识库)
-          </span>
-        </span>
-        <el-button text v-if="currentChat" @click="deleteCurrentChat">
-          <component :is="icons.Delete" class="w-5 h-5" />
-        </el-button>
-      </div>
-      
-      <div ref="messagesContainer" class="flex-1 overflow-auto p-4 space-y-4">
-        <div
-          v-for="(msg, index) in messages"
-          :key="index"
-          class="flex"
-          :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
-        >
-          <div
-            :class="[
-              'max-w-3/4 p-3 rounded-lg',
-              msg.role === 'user' ? 'bg-primary text-white' : 'bg-white border'
-            ]"
-          >
-            <div class="whitespace-pre-wrap">{{ msg.content }}</div>
-            <div v-if="msg.references && msg.references.length > 0" class="mt-2 pt-2 border-t border-gray-200">
-              <div class="text-xs text-gray-500 mb-2">引用来源：</div>
+
+    <el-card class="chat-card" :body-style="{ padding: '0px' }">
+      <div class="chat-layout">
+        <div class="sidebar">
+          <div class="sidebar-section">
+            <div class="section-title">对话历史</div>
+            <div class="history-list">
               <div
-                v-for="(ref, idx) in msg.references"
-                :key="idx"
-                class="text-xs bg-gray-100 p-2 rounded mb-1"
+                v-for="chat in chatHistory"
+                :key="chat._id"
+                class="history-item"
+                :class="{ active: currentChatId === chat._id }"
+                @click="loadChat(chat._id)"
               >
-                <span class="text-primary">[{{ idx + 1 }}]</span>
-                {{ ref.documentName }}
+                <div class="history-content">
+                  <div class="history-title">{{ chat.title }}</div>
+                  <div class="history-time">{{ formatTime(chat.updatedAt) }}</div>
+                </div>
+                <el-icon class="delete-icon" @click.stop="handleDeleteChat(chat._id)">
+                  <Delete />
+                </el-icon>
+              </div>
+              <div v-if="chatHistory.length === 0" class="empty-text">
+                暂无对话记录
               </div>
             </div>
           </div>
+          <div class="sidebar-footer">
+            <el-button class="new-chat-btn" @click="newChat">
+              <el-icon class="mr-2"><Plus /></el-icon>
+              新建对话
+            </el-button>
+          </div>
         </div>
-        
-        <div v-if="isStreaming" class="flex justify-start">
-          <div class="max-w-3/4 p-3 rounded-lg bg-white border">
-            <span class="typing-indicator">{{ currentMessageContent }}</span>
-            <span class="inline-block w-2 h-2 bg-gray-400 rounded-full animate-bounce ml-1"></span>
-            <span class="inline-block w-2 h-2 bg-gray-400 rounded-full animate-bounce ml-1" style="animation-delay: 0.2s"></span>
-            <span class="inline-block w-2 h-2 bg-gray-400 rounded-full animate-bounce ml-1" style="animation-delay: 0.4s"></span>
+
+        <div class="main-area">
+          <div class="messages-container" ref="messagesContainer">
+            <div v-if="messages.length === 0" class="empty-state">
+              <el-icon class="empty-icon"><ChatDotRound /></el-icon>
+              <p>输入您的问题，开始智能问答</p>
+            </div>
+            <div
+              v-for="(msg, index) in messages"
+              :key="index"
+              class="message-wrapper"
+              :class="msg.role === 'user' ? 'user-message' : 'assistant-message'"
+            >
+              <div class="message-bubble" :class="{ streaming: msg.isStreaming }">
+                <div class="message-content">{{ msg.content }}</div>
+                <span v-if="msg.isStreaming" class="typing-dot"></span>
+                <div v-if="msg.references && msg.references.length > 0" class="references">
+                  <div class="references-title">引用来源：</div>
+                  <div
+                    v-for="(ref, idx) in msg.references"
+                    :key="idx"
+                    class="reference-item"
+                  >
+                    <span class="ref-index">[{{ idx + 1 }}]</span>
+                    {{ ref.content }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="input-area">
+            <div class="input-tip">AI 回答仅供参考，请以实际情况为准</div>
+            <div class="input-wrapper">
+              <el-input
+                v-model="inputMessage"
+                placeholder="输入您的问题，按 Enter 发送，Shift+Enter 换行..."
+                @keydown="handleKeyDown"
+                :disabled="isStreaming"
+                resize="none"
+                :rows="2"
+                type="textarea"
+              />
+              <el-button
+                v-if="isStreaming"
+                type="warning"
+                @click="stopGeneration"
+              >
+                <el-icon><VideoPause /></el-icon>
+              </el-button>
+              <el-button
+                v-else
+                type="primary"
+                :disabled="!inputMessage.trim()"
+                @click="handleSend"
+              >
+                <el-icon><Promotion /></el-icon>
+              </el-button>
+            </div>
           </div>
         </div>
       </div>
-      
-      <div class="p-4 border-t border-gray-200">
-        <div class="text-xs text-gray-400 mb-2 text-center">
-          AI 回答仅供参考，请以实际情况为准
-        </div>
-        <div class="flex gap-3">
-          <el-input
-            v-model="inputMessage"
-            placeholder="输入您的问题..."
-            @keyup.enter="sendMessage"
-            :disabled="isStreaming"
-            class="flex-1"
-          />
-          <el-button type="primary" @click="sendMessage" :disabled="isStreaming || !inputMessage.trim()">
-            <component :is="icons.ArrowRight" class="w-5 h-5" />
-          </el-button>
-        </div>
-      </div>
-    </div>
+    </el-card>
   </div>
 </template>
 
-<script setup>import { ref, onMounted, nextTick } from 'vue';
-import * as icons from '@element-plus/icons-vue';
-import { ElMessage } from 'element-plus';
-import { useChatStore } from '@/stores/chat';
-import { useKnowledgeStore } from '@/stores/knowledge';
-const chatStore = useChatStore();
-const knowledgeStore = useKnowledgeStore();
-const knowledgeList = ref([]);
-const chatHistory = ref([]);
-const currentChatId = ref(null);
-const messages = ref([]);
-const inputMessage = ref('');
-const isStreaming = ref(false);
-const currentMessageContent = ref('');
-const messagesContainer = ref(null);
-const selectedKnowledgeIds = ref([]);
+<script setup>
+import { ref, onMounted, nextTick } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Plus, ChatDotRound, Promotion, VideoPause, Delete } from '@element-plus/icons-vue'
+import { requestStream } from '@/utils/request'
+import { chatApi } from '@/api/chat'
+
+const chatHistory = ref([])
+const currentChatId = ref(null)
+const messages = ref([])
+const inputMessage = ref('')
+const isStreaming = ref(false)
+const messagesContainer = ref(null)
+const abortController = ref(null)
+
+function normalizeChat(chat) {
+  return {
+    ...chat,
+    _id: chat._id || chat.id
+  }
+}
+
 function formatTime(dateStr) {
- if (!dateStr)
- return '';
- const date = new Date(dateStr);
- const now = new Date();
- const diff = now.getTime() - date.getTime();
- const days = Math.floor(diff / (1000 * 60 * 60 * 24));
- if (days === 0) {
- const hours = Math.floor(diff / (1000 * 60 * 60));
- if (hours === 0) {
- const minutes = Math.floor(diff / (1000 * 60));
- return `${minutes}分钟前`;
- }
- return `${hours}小时前`;
- }
- else if (days < 7) {
- return `${days}天前`;
- }
- else {
- return date.toLocaleDateString();
- }
+  if (!dateStr) return ''
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diff = now.getTime() - date.getTime()
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+
+  if (days === 0) {
+    const hours = Math.floor(diff / (1000 * 60 * 60))
+    if (hours === 0) {
+      const minutes = Math.floor(diff / (1000 * 60))
+      return `${minutes}分钟前`
+    }
+    return `${hours}小时前`
+  } else if (days < 7) {
+    return `${days}天前`
+  } else {
+    return date.toLocaleDateString()
+  }
 }
-function toggleKnowledge(id) {
- const index = selectedKnowledgeIds.value.indexOf(id);
- if (index > -1) {
- selectedKnowledgeIds.value.splice(index, 1);
- }
- else {
- selectedKnowledgeIds.value.push(id);
- }
- chatStore.setSelectedKnowledgeIds(selectedKnowledgeIds.value);
+
+function handleKeyDown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault()
+    handleSend()
+  }
 }
+
+function stopGeneration() {
+  if (abortController.value) {
+    abortController.value.abort()
+    abortController.value = null
+    isStreaming.value = false
+    ElMessage.info('已停止生成')
+  }
+}
+
 function newChat() {
- currentChatId.value = null;
- messages.value = [];
- inputMessage.value = '';
+  currentChatId.value = null
+  messages.value = []
+  inputMessage.value = ''
 }
+
+async function handleDeleteChat(id) {
+  try {
+    await ElMessageBox.confirm('确定要删除该对话吗？', '提示', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    await chatApi.delete(id)
+    ElMessage.success('删除成功')
+    if (currentChatId.value === id) {
+      newChat()
+    }
+    await fetchChatHistory()
+  } catch (e) {
+    if (e !== 'cancel') {
+      console.error('删除对话失败:', e)
+    }
+  }
+}
+
 async function loadChat(id) {
- currentChatId.value = id;
- await chatStore.fetchChatDetail(id);
- messages.value = chatStore.messages;
- scrollToBottom();
+  currentChatId.value = id
+  await fetchChatDetail(id)
+  scrollToBottom()
 }
-async function sendMessage() {
- if (!inputMessage.value.trim() || isStreaming.value)
- return;
- const query = inputMessage.value.trim();
- inputMessage.value = '';
- messages.value.push({
- role: 'user',
- content: query,
- timestamp: new Date().toISOString()
- });
- scrollToBottom();
- isStreaming.value = true;
- currentMessageContent.value = '';
- messages.value.push({
- role: 'assistant',
- content: '',
- references: [],
- timestamp: new Date().toISOString()
- });
- scrollToBottom();
- await chatStore.sendMessageStream(query, (chunk) => {
- currentMessageContent.value += chunk;
- const lastMsg = messages.value[messages.value.length - 1];
- if (lastMsg) {
- lastMsg.content = currentMessageContent.value;
- }
- scrollToBottom();
- }, (chatId) => {
- isStreaming.value = false;
- currentChatId.value = chatId;
- }, (error) => {
- isStreaming.value = false;
- ElMessage.error(error || '发送失败');
- });
+
+async function fetchChatDetail(id) {
+  try {
+    const data = await chatApi.getById(id)
+    messages.value = data.messages || []
+  } catch (e) {
+    ElMessage.error('获取对话详情失败')
+  }
 }
-async function deleteCurrentChat() {
- if (!currentChatId.value)
- return;
- try {
- await chatStore.deleteChat(currentChatId.value);
- newChat();
- await fetchChatHistory();
- ElMessage.success('删除成功');
- }
- catch (e) {
- ElMessage.error('删除失败');
- }
-}
+
+async function handleSend() {
+    if (!inputMessage.value.trim() || isStreaming.value) return
+
+    const query = inputMessage.value.trim()
+    inputMessage.value = ''
+
+    messages.value.push({
+      role: 'user',
+      content: query,
+      timestamp: new Date().toISOString(),
+      references: []
+    })
+
+    scrollToBottom()
+
+    isStreaming.value = true
+    abortController.value = new AbortController()
+
+    const assistantMsg = {
+      role: 'assistant',
+      content: '',
+      timestamp: new Date().toISOString(),
+      references: [],
+      isStreaming: true
+    }
+    messages.value.push(assistantMsg)
+
+    scrollToBottom()
+
+    try {
+      const response = await requestStream('/api/v1/chat/ask/stream', {
+        method: 'POST',
+        body: JSON.stringify({ query }),
+        signal: abortController.value.signal
+      })
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        const chunk = decoder.decode(value)
+        const lines = chunk.split('\n')
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const jsonData = JSON.parse(line.slice(6))
+              const { type, content, chatId } = jsonData.data || {}
+
+              if (type === 'content') {
+                assistantMsg.content += content
+                scrollToBottom()
+              } else if (type === 'end') {
+                assistantMsg.isStreaming = false
+                if (chatId) {
+                  currentChatId.value = chatId
+                }
+              }
+            } catch (e) {
+              console.error('解析 SSE 数据失败:', e)
+            }
+          }
+        }
+      }
+
+      assistantMsg.isStreaming = false
+      isStreaming.value = false
+      abortController.value = null
+      await fetchChatHistory()
+    } catch (e) {
+      if (e.name === 'AbortError') {
+        ElMessage.info('已停止生成')
+      } else {
+        ElMessage.error('发送失败，请重试')
+      }
+      assistantMsg.isStreaming = false
+      isStreaming.value = false
+      abortController.value = null
+    }
+  }
+
 function scrollToBottom() {
- nextTick(() => {
- if (messagesContainer.value) {
- messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
- }
- });
+  nextTick(() => {
+    if (messagesContainer.value) {
+      messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+    }
+  })
 }
-async function fetchKnowledgeList() {
- try {
- await knowledgeStore.fetchKnowledgeList();
- knowledgeList.value = knowledgeStore.knowledgeList;
- }
- catch (e) {
- console.error('获取知识库列表失败:', e);
- }
-}
+
 async function fetchChatHistory() {
- try {
- await chatStore.fetchChatHistory();
- chatHistory.value = chatStore.chatHistory;
- }
- catch (e) {
- console.error('获取对话历史失败:', e);
- }
+  try {
+    const data = await chatApi.getHistory()
+    chatHistory.value = (data.list || []).map(normalizeChat)
+  } catch (e) {
+    console.error('获取对话历史失败:', e)
+  }
 }
+
 onMounted(async () => {
- await fetchKnowledgeList();
- await fetchChatHistory();
-});
+  await fetchChatHistory()
+})
 </script>
 
 <style scoped>
-.typing-indicator {
-  display: inline;
+.chat-content {
+  padding: 24px;
+  height: calc(100vh - 60px);
+  display: flex;
+  flex-direction: column;
+}
+
+.page-header {
+  margin-bottom: 24px;
+}
+
+.page-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: #1f2937;
+  margin: 0 0 8px 0;
+}
+
+.page-subtitle {
+  font-size: 14px;
+  color: #6b7280;
+  margin: 0;
+}
+
+.chat-card {
+  flex: 1;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.chat-layout {
+  display: flex;
+  height: 100%;
+}
+
+.sidebar {
+  width: 260px;
+  border-right: 1px solid #e5e7eb;
+  display: flex;
+  flex-direction: column;
+  background-color: #fafafa;
+}
+
+.sidebar-section {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.section-title {
+  padding: 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.history-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-bottom: 4px;
+}
+
+.history-item:hover {
+  background-color: #f3f4f6;
+}
+
+.history-item.active {
+  background-color: #e0e7ff;
+}
+
+.history-content {
+  flex: 1;
+  overflow: hidden;
+}
+
+.delete-icon {
+  opacity: 0;
+  color: #9ca3af;
+  cursor: pointer;
+  transition: opacity 0.2s;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.history-item:hover .delete-icon {
+  opacity: 1;
+}
+
+.delete-icon:hover {
+  color: #ef4444;
+}
+
+.history-title {
+  font-size: 14px;
+  color: #1f2937;
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-time {
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.empty-text {
+  text-align: center;
+  padding: 20px;
+  color: #9ca3af;
+  font-size: 14px;
+}
+
+.sidebar-footer {
+  padding: 16px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.new-chat-btn {
+  width: 100%;
+}
+
+.main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.messages-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+}
+
+.empty-state {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+}
+
+.empty-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.empty-state p {
+  font-size: 14px;
+  margin: 0;
+}
+
+.message-wrapper {
+  margin-bottom: 16px;
+  display: flex;
+}
+
+.user-message {
+  justify-content: flex-end;
+}
+
+.assistant-message {
+  justify-content: flex-start;
+}
+
+.message-bubble {
+  max-width: 70%;
+  padding: 12px 16px;
+  border-radius: 12px;
+  word-break: break-word;
+}
+
+.user-message .message-bubble {
+  background-color: #4f46e5;
+  color: white;
+  border-bottom-right-radius: 4px;
+}
+
+.assistant-message .message-bubble {
+  background-color: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-bottom-left-radius: 4px;
+}
+
+.message-content {
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+.references {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.references-title {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 8px;
+}
+
+.reference-item {
+  font-size: 12px;
+  background-color: #f3f4f6;
+  padding: 8px;
+  border-radius: 4px;
+  margin-bottom: 4px;
+  color: #4b5563;
+}
+
+.ref-index {
+  color: #4f46e5;
+  font-weight: 600;
+}
+
+.streaming {
+  display: inline-flex;
+  align-items: center;
+}
+
+.typing-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background-color: #9ca3af;
+  border-radius: 50%;
+  margin-left: 4px;
+  animation: typing 1.4s infinite;
+}
+
+@keyframes typing {
+  0%, 60%, 100% {
+    opacity: 0.3;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+
+.input-area {
+  padding: 16px 24px;
+  border-top: 1px solid #e5e7eb;
+  background-color: #fafafa;
+}
+
+.input-tip {
+  font-size: 12px;
+  color: #9ca3af;
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.input-wrapper {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.input-wrapper .el-textarea {
+  flex: 1;
 }
 </style>

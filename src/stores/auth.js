@@ -12,17 +12,22 @@ export const useAuthStore = defineStore('auth', () => {
   async function login(username, password) {
     const data = await authApi.login(username, password)
     token.value = data.token
-    userInfo.value = data.userInfo
+    userInfo.value = data.user
     storage.setToken(data.token)
-    storage.setUserInfo(data.userInfo)
+    storage.setUserInfo(data.user)
     return data
   }
 
   async function logout() {
-    await authApi.logout()
-    token.value = ''
-    userInfo.value = null
-    storage.clearAll()
+    try {
+      await authApi.logout()
+    } catch (e) {
+      console.warn('登出接口调用失败', e)
+    } finally {
+      token.value = ''
+      userInfo.value = null
+      storage.clearAll()
+    }
   }
 
   async function fetchUserInfo() {
