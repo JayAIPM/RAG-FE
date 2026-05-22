@@ -52,7 +52,7 @@
               :class="msg.role === 'user' ? 'user-message' : 'assistant-message'"
             >
               <div class="message-bubble" :class="{ streaming: msg.isStreaming }">
-                <div class="message-content">{{ msg.content }}</div>
+                <div class="message-content" v-html="formatContentWithReferences(msg)"></div>
                 <span v-if="msg.isStreaming" class="typing-dot"></span>
                 <div v-if="msg.references && msg.references.length > 0" class="references">
                   <div class="references-title">引用来源：</div>
@@ -60,9 +60,13 @@
                     v-for="(ref, idx) in msg.references"
                     :key="idx"
                     class="reference-item"
+                    :class="{ active: activeRefIndex === idx }"
+                    @mouseenter="activeRefIndex = idx"
+                    @mouseleave="activeRefIndex = null"
                   >
                     <span class="ref-index">[{{ idx + 1 }}]</span>
-                    {{ ref.content }}
+                    <span class="ref-content">{{ ref.content }}</span>
+                    <span v-if="ref.documentName" class="ref-source"> - {{ ref.documentName }}</span>
                   </div>
                 </div>
               </div>
@@ -118,11 +122,54 @@ const inputMessage = ref('')
 const isStreaming = ref(false)
 const messagesContainer = ref(null)
 const abortController = ref(null)
+const activeRefIndex = ref(null)
 
 function normalizeChat(chat) {
   return {
     ...chat,
     _id: chat._id || chat.id
+  }
+}
+
+function formatContentWithReferences(msg) {
+  if (!msg.content || !msg.references || msg.references.length === 0) {
+    console.log('没有引用数据:', msg.content, msg.references)
+    return escapeHtml(msg.content || '')
+  }
+
+  console.log('有引用数据:', msg.references.length, '个引用')
+  let content = escapeHtml(msg.content)
+  console.log('原始内容:', content)
+  
+  msg.references.forEach((ref, idx) => {
+    const refPattern = new RegExp(`\\[${idx + 1}\\]`, 'g')
+    content = content.replace(refPattern, `<span class="ref-mark" data-index="${idx}">[${idx + 1}]</span>`)
+  })
+
+  console.log('处理后内容:', content)
+  return content
+}
+
+function escapeHtml(text) {
+  if (!text) return ''
+  const map = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;'
+  }
+  return text.replace(/[&<>"']/g, m => map[m])
+}
+
+function handleRefMarkClick(e) {
+  const target = e.target
+  if (target.classList.contains('ref-mark')) {
+    const index = parseInt(target.dataset.index)
+    if (!isNaN(index)) {
+      activeRefIndex.value = activeRefIndex.value === index ? null : index
+      alert(`点击了引用标记 [${index + 1}]`)
+    }
   }
 }
 
@@ -307,6 +354,16 @@ async function fetchChatHistory() {
 
 onMounted(async () => {
   await fetchChatHistory()
+  
+  setTimeout(() => {
+    const container = messagesContainer.value
+    if (container) {
+      container.addEventListener('click', handleRefMarkClick)
+      console.log('事件监听器已绑定')
+    } else {
+      console.error('messagesContainer is null')
+    }
+  }, 100)
 })
 </script>
 
@@ -513,6 +570,22 @@ onMounted(async () => {
   line-height: 1.6;
 }
 
+.message-content .ref-mark {
+  color: #4f46e5;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  margin: 0 2px;
+}
+
+.message-content .ref-mark:hover {
+  color: #3730a3;
+  background-color: #eef2ff;
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
 .references {
   margin-top: 12px;
   padding-top: 12px;
@@ -532,11 +605,33 @@ onMounted(async () => {
   border-radius: 4px;
   margin-bottom: 4px;
   color: #4b5563;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.reference-item:hover,
+.reference-item.active {
+  background-color: #eef2ff;
+  border-left: 3px solid #4f46e5;
 }
 
 .ref-index {
   color: #4f46e5;
   font-weight: 600;
+  margin-right: 6px;
+}
+
+.ref-content {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ref-source {
+  font-size: 11px;
+  color: #9ca3af;
+  margin-left: 8px;
 }
 
 .streaming {
