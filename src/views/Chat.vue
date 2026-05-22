@@ -163,6 +163,7 @@ function handleRefMarkClick(e) {
     const index = parseInt(target.dataset.index)
     if (!isNaN(index)) {
       activeRefIndex.value = activeRefIndex.value === index ? null : index
+      alert(`点击了引用标记 [${index + 1}]`)
     }
   }
 }
