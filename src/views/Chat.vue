@@ -347,22 +347,18 @@ async function fetchChatHistory() {
   }
 }
 
-function setupRefMarkClickListener() {
-  const container = messagesContainer.value
-  if (!container) {
-    console.error('messagesContainer is null')
-    return
-  }
-
-  container.addEventListener('click', handleRefMarkClick)
-  console.log('事件监听器已绑定')
-}
-
 onMounted(async () => {
   await fetchChatHistory()
-  nextTick(() => {
-    setupRefMarkClickListener()
-  })
+  
+  setTimeout(() => {
+    const container = messagesContainer.value
+    if (container) {
+      container.addEventListener('click', handleRefMarkClick)
+      console.log('事件监听器已绑定')
+    } else {
+      console.error('messagesContainer is null')
+    }
+  }, 100)
 })
 </script>
 
