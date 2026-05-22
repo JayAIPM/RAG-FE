@@ -167,8 +167,11 @@ function handleRefMarkHover(e) {
   }
 }
 
-function handleRefMarkLeave() {
-  activeRefIndex.value = null
+function handleRefMarkLeave(e) {
+  const relatedTarget = e.relatedTarget
+  if (!relatedTarget || !relatedTarget.closest('.references')) {
+    activeRefIndex.value = null
+  }
 }
 
 function formatTime(dateStr) {
