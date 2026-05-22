@@ -52,7 +52,7 @@
               :class="msg.role === 'user' ? 'user-message' : 'assistant-message'"
             >
               <div class="message-bubble" :class="{ streaming: msg.isStreaming }">
-                <div class="message-content" v-html="formatContentWithReferences(msg)" @mouseenter="handleRefMarkHover" @mouseleave="handleRefMarkLeave"></div>
+                <div class="message-content" v-html="formatContentWithReferences(msg)" @mousemove="handleRefMarkHover" @mouseleave="handleRefMarkLeave"></div>
                 <span v-if="msg.isStreaming" class="typing-dot"></span>
                 <div v-if="msg.references && msg.references.length > 0" class="references">
                   <div class="references-title">引用来源：</div>
