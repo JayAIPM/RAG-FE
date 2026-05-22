@@ -349,14 +349,20 @@ async function fetchChatHistory() {
 
 function setupRefMarkClickListener() {
   const container = messagesContainer.value
-  if (!container) return
+  if (!container) {
+    console.error('messagesContainer is null')
+    return
+  }
 
   container.addEventListener('click', handleRefMarkClick)
+  console.log('事件监听器已绑定')
 }
 
 onMounted(async () => {
   await fetchChatHistory()
-  setupRefMarkClickListener()
+  nextTick(() => {
+    setupRefMarkClickListener()
+  })
 })
 </script>
 
