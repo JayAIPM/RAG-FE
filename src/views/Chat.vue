@@ -133,15 +133,20 @@ function normalizeChat(chat) {
 
 function formatContentWithReferences(msg) {
   if (!msg.content || !msg.references || msg.references.length === 0) {
+    console.log('没有引用数据:', msg.content, msg.references)
     return escapeHtml(msg.content || '')
   }
 
+  console.log('有引用数据:', msg.references.length, '个引用')
   let content = escapeHtml(msg.content)
+  console.log('原始内容:', content)
+  
   msg.references.forEach((ref, idx) => {
     const refPattern = new RegExp(`\\[${idx + 1}\\]`, 'g')
     content = content.replace(refPattern, `<span class="ref-mark" data-index="${idx}">[${idx + 1}]</span>`)
   })
 
+  console.log('处理后内容:', content)
   return content
 }
 
