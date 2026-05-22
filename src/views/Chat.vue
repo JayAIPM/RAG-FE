@@ -52,7 +52,7 @@
               :class="msg.role === 'user' ? 'user-message' : 'assistant-message'"
             >
               <div class="message-bubble" :class="{ streaming: msg.isStreaming }">
-                <div class="message-content" v-html="formatContentWithReferences(msg)" @click="handleRefMarkClick"></div>
+                <div class="message-content" v-html="formatContentWithReferences(msg)"></div>
                 <span v-if="msg.isStreaming" class="typing-dot"></span>
                 <div v-if="msg.references && msg.references.length > 0" class="references">
                   <div class="references-title">引用来源：</div>
@@ -346,8 +346,16 @@ async function fetchChatHistory() {
   }
 }
 
+function setupRefMarkClickListener() {
+  const container = messagesContainer.value
+  if (!container) return
+
+  container.addEventListener('click', handleRefMarkClick)
+}
+
 onMounted(async () => {
   await fetchChatHistory()
+  setupRefMarkClickListener()
 })
 </script>
 
