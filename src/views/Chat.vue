@@ -143,7 +143,7 @@ function formatContentWithReferences(msg) {
   
   msg.references.forEach((ref, idx) => {
     const refPattern = new RegExp(`\\[${idx + 1}\\]`, 'g')
-    content = content.replace(refPattern, `<span class="ref-mark" data-index="${idx}">[${idx + 1}]</span>`)
+    content = content.replace(refPattern, `<span class="ref-mark" data-index="${idx}" onclick="window.handleRefClick(${idx})">[${idx + 1}]</span>`)
   })
 
   console.log('处理后内容:', content)
@@ -353,6 +353,14 @@ async function fetchChatHistory() {
 }
 
 onMounted(async () => {
+  console.log('Chat组件已挂载')
+  
+  window.handleRefClick = function(index) {
+    console.log('点击了引用标记:', index)
+    activeRefIndex.value = activeRefIndex.value === index ? null : index
+    alert(`点击了引用标记 [${index + 1}]`)
+  }
+  
   await fetchChatHistory()
   
   setTimeout(() => {
