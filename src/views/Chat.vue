@@ -52,7 +52,7 @@
               :class="msg.role === 'user' ? 'user-message' : 'assistant-message'"
             >
               <div class="message-bubble" :class="{ streaming: msg.isStreaming }">
-                <div class="message-content" v-html="formatContentWithReferences(msg)" @mousemove="handleRefMarkHover" @mouseleave="handleRefMarkLeave"></div>
+                <div class="message-content" v-html="formatContentWithReferences(msg)" @click="handleRefMarkClick"></div>
                 <span v-if="msg.isStreaming" class="typing-dot"></span>
                 <div v-if="msg.references && msg.references.length > 0" class="references">
                   <div class="references-title">引用来源：</div>
@@ -157,20 +157,13 @@ function escapeHtml(text) {
   return text.replace(/[&<>"']/g, m => map[m])
 }
 
-function handleRefMarkHover(e) {
+function handleRefMarkClick(e) {
   const target = e.target
   if (target.classList.contains('ref-mark')) {
     const index = parseInt(target.dataset.index)
     if (!isNaN(index)) {
-      activeRefIndex.value = index
+      activeRefIndex.value = activeRefIndex.value === index ? null : index
     }
-  }
-}
-
-function handleRefMarkLeave(e) {
-  const relatedTarget = e.relatedTarget
-  if (!relatedTarget || !relatedTarget.closest('.references')) {
-    activeRefIndex.value = null
   }
 }
 
