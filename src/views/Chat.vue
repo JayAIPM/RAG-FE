@@ -40,7 +40,11 @@
         </div>
 
         <div class="main-area">
-          <div class="messages-container" ref="messagesContainer">
+          <div 
+            class="messages-container" 
+            ref="messagesContainer"
+            @click="handleReferenceClick"
+          >
             <div v-if="messages.length === 0" class="empty-state">
               <el-icon class="empty-icon"><ChatDotRound /></el-icon>
               <p>输入您的问题，开始智能问答</p>
@@ -52,17 +56,46 @@
               :class="msg.role === 'user' ? 'user-message' : 'assistant-message'"
             >
               <div class="message-bubble" :class="{ streaming: msg.isStreaming }">
-                <div class="message-content">{{ msg.content }}</div>
-                <span v-if="msg.isStreaming" class="typing-dot"></span>
-                <div v-if="msg.references && msg.references.length > 0" class="references">
-                  <div class="references-title">引用来源：</div>
-                  <div
-                    v-for="(ref, idx) in msg.references"
-                    :key="idx"
-                    class="reference-item"
+                <div v-if="msg.isStreaming && !msg.content" class="loading-indicator">
+                  <div class="loading-dots">
+                    <span></span><span></span><span></span>
+                  </div>
+                  <span class="loading-text">{{ loadingStatus === 'retrieving' ? '正在检索相关文档...' : '正在生成回答...' }}</span>
+                </div>
+                <div 
+                  class="message-content"
+                  v-html="renderMessageContent(msg, index)"
+                ></div>
+                <span v-if="msg.isStreaming && msg.content" class="typing-dot"></span>
+                <div 
+                  v-if="msg.references && msg.references.length > 0" class="references">
+                  <div class="retrieval-stats">
+                    根据 {{ msg.references.length }} 个相关片段生成回答
+                  </div>
+                  <div 
+                    class="references-toggle"
+                    @click="toggleReferences(index)"
                   >
-                    <span class="ref-index">[{{ idx + 1 }}]</span>
-                    {{ ref.content }}
+                    <span class="references-title">
+                      {{ referencesExpanded[index] ? '收起' : '展开' }} 引用来源
+                    </span>
+                    <el-icon :class="{ 'rotate-180': referencesExpanded[index] }">
+                      <ArrowDown />
+                    </el-icon>
+                  </div>
+                  <div 
+                    v-show="referencesExpanded[index]" class="references-list">
+                    <div
+                      v-for="(ref, idx) in msg.references"
+                      :key="idx"
+                      class="reference-item"
+                      :class="{ 'highlighted': highlightedReferenceIndex[index] === idx }"
+                      :data-message-index="index"
+                      :data-ref-index="idx"
+                    >
+                      <span class="ref-index">[{{ idx + 1 }}]</span>
+                      {{ ref.content }}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -107,7 +140,7 @@
 <script setup>
 import { ref, onMounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, ChatDotRound, Promotion, VideoPause, Delete } from '@element-plus/icons-vue'
+import { Plus, ChatDotRound, Promotion, VideoPause, Delete, ArrowDown } from '@element-plus/icons-vue'
 import { requestStream } from '@/utils/request'
 import { chatApi } from '@/api/chat'
 
@@ -116,8 +149,12 @@ const currentChatId = ref(null)
 const messages = ref([])
 const inputMessage = ref('')
 const isStreaming = ref(false)
+const isRetrieving = ref(false) // 是否正在检索
+const loadingStatus = ref(null) // 加载状态：null / 'retrieving' / 'generating'
 const messagesContainer = ref(null)
 const abortController = ref(null)
+const referencesExpanded = ref({}) // 记录每个消息的引用是否展开
+const highlightedReferenceIndex = ref({}) // 记录每个消息当前高亮的引用索引
 
 function normalizeChat(chat) {
   return {
@@ -144,6 +181,96 @@ function formatTime(dateStr) {
     return `${days}天前`
   } else {
     return date.toLocaleDateString()
+  }
+}
+
+// 渲染消息内容，将引用序号转换为可点击的链接
+function renderMessageContent(msg, messageIndex) {
+  if (!msg.content) return ''
+  
+  let content = msg.content
+  // 将 [1]、[2] 等引用序号替换为可点击的 span
+  content = content.replace(/\[(\d+)\]/g, (match, num) => {
+    const refIndex = parseInt(num) - 1
+    return `<span class="reference-link" data-index="${refIndex}" data-message-index="${messageIndex}">${match}</span>`
+  })
+  
+  return content
+}
+
+// 切换引用列表展开/折叠
+function toggleReferences(messageIndex) {
+  referencesExpanded.value[messageIndex] = !referencesExpanded.value[messageIndex]
+}
+
+// 处理引用序号点击
+function handleReferenceClick(event) {
+  const target = event.target
+  if (target.classList.contains('reference-link')) {
+    const refIndex = parseInt(target.dataset.index)
+    const messageIndex = parseInt(target.dataset.messageIndex)
+    
+    // 高亮对应的引用项
+    highlightedReferenceIndex.value[messageIndex] = refIndex
+    
+    // 如果引用列表是折叠的，先展开
+    if (!referencesExpanded.value[messageIndex]) {
+      referencesExpanded.value[messageIndex] = true
+    }
+    
+    // 滚动到引用项（延迟到下一个 tick 确保 DOM 已更新）
+    nextTick(() => {
+      const referenceItem = document.querySelector(
+        `.reference-item[data-message-index="${messageIndex}"][data-ref-index="${refIndex}"]`
+      )
+      if (referenceItem) {
+        referenceItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      }
+    })
+    
+    // 3秒后清除高亮
+    setTimeout(() => {
+      if (highlightedReferenceIndex.value[messageIndex] === refIndex) {
+        highlightedReferenceIndex.value[messageIndex] = null
+      }
+    }, 3000)
+  }
+}
+
+// 流式结束后获取完整对话详情
+async function fetchChatDetailsAfterStream(chatId) {
+  if (!chatId) return
+  
+  try {
+    // 延时 1 秒再获取
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    
+    const data = await chatApi.getById(chatId)
+    
+    // 更新当前对话的消息，补充引用信息
+    if (data && data.messages) {
+      // 找到当前对话的助手消息（应该是最后一条）
+      const lastAssistantMsgIndex = messages.value.findLastIndex(
+        m => m.role === 'assistant'
+      )
+      
+      if (lastAssistantMsgIndex !== -1) {
+        const backendMsg = data.messages.findLast(
+          m => m.role === 'assistant'
+        )
+        
+        if (backendMsg) {
+          messages.value[lastAssistantMsgIndex] = {
+            ...messages.value[lastAssistantMsgIndex],
+            content: backendMsg.content,
+            references: backendMsg.references || []
+          }
+        }
+      }
+    }
+  } catch (error) {
+    // 静默失败，不做处理
+    console.error('获取对话详情失败:', error)
   }
 }
 
@@ -199,6 +326,9 @@ async function fetchChatDetail(id) {
   try {
     const data = await chatApi.getById(id)
     messages.value = data.messages || []
+    // 初始化引用状态
+    referencesExpanded.value = {}
+    highlightedReferenceIndex.value = {}
   } catch (e) {
     ElMessage.error('获取对话详情失败')
   }
@@ -220,6 +350,7 @@ async function handleSend() {
     scrollToBottom()
 
     isStreaming.value = true
+    loadingStatus.value = 'retrieving' // 开始检索阶段
     abortController.value = new AbortController()
 
     const assistantMsg = {
@@ -234,9 +365,16 @@ async function handleSend() {
     scrollToBottom()
 
     try {
+      // 根据 currentChatId 动态构建请求体，支持多轮对话
+      const requestBody = {
+        query: query,
+        // 仅在有 chatId 时添加，实现多轮对话上下文
+        ...(currentChatId.value && { chatId: currentChatId.value })
+      }
+      
       const response = await requestStream('/api/v1/chat/ask/stream', {
         method: 'POST',
-        body: JSON.stringify({ query }),
+        body: JSON.stringify(requestBody),
         signal: abortController.value.signal
       })
 
@@ -257,12 +395,19 @@ async function handleSend() {
               const { type, content, chatId } = jsonData.data || {}
 
               if (type === 'content') {
+                // 开始接收内容时切换到生成阶段
+                if (loadingStatus.value === 'retrieving' && !assistantMsg.content) {
+                  loadingStatus.value = 'generating'
+                }
                 assistantMsg.content += content
                 scrollToBottom()
               } else if (type === 'end') {
                 assistantMsg.isStreaming = false
+                loadingStatus.value = null // 清除加载状态
                 if (chatId) {
                   currentChatId.value = chatId
+                  // 流式结束后，延时1秒获取完整对话详情（包含引用信息）
+                  fetchChatDetailsAfterStream(chatId)
                 }
               }
             } catch (e) {
@@ -274,6 +419,7 @@ async function handleSend() {
 
       assistantMsg.isStreaming = false
       isStreaming.value = false
+      loadingStatus.value = null // 清除加载状态
       abortController.value = null
       await fetchChatHistory()
     } catch (e) {
@@ -284,6 +430,7 @@ async function handleSend() {
       }
       assistantMsg.isStreaming = false
       isStreaming.value = false
+      loadingStatus.value = null // 清除加载状态
       abortController.value = null
     }
   }
@@ -513,16 +660,72 @@ onMounted(async () => {
   line-height: 1.6;
 }
 
+.reference-link {
+  color: #4f46e5;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.reference-link:hover {
+  background-color: #eef2ff;
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
 .references {
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid #e5e7eb;
 }
 
-.references-title {
+.retrieval-stats {
   font-size: 12px;
   color: #6b7280;
   margin-bottom: 8px;
+  padding: 6px 10px;
+  background-color: #f3f4f6;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.references-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  padding: 4px 0;
+  transition: color 0.2s;
+}
+
+.references-toggle:hover {
+  color: #4f46e5;
+}
+
+.references-toggle .el-icon {
+  transition: transform 0.3s;
+  font-size: 14px;
+  color: #9ca3af;
+}
+
+.references-toggle:hover .el-icon {
+  color: #4f46e5;
+}
+
+.references-toggle .el-icon.rotate-180 {
+  transform: rotate(180deg);
+}
+
+.references-title {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 0;
+}
+
+.references-list {
+  margin-top: 8px;
+  max-height: 300px;
+  overflow-y: auto;
 }
 
 .reference-item {
@@ -532,6 +735,13 @@ onMounted(async () => {
   border-radius: 4px;
   margin-bottom: 4px;
   color: #4b5563;
+  transition: all 0.3s;
+}
+
+.reference-item.highlighted {
+  background-color: #dbeafe;
+  border: 1px solid #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }
 
 .ref-index {
@@ -542,6 +752,50 @@ onMounted(async () => {
 .streaming {
   display: inline-flex;
   align-items: center;
+}
+
+.loading-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.loading-dots {
+  display: flex;
+  gap: 4px;
+}
+
+.loading-dots span {
+  width: 6px;
+  height: 6px;
+  background-color: #9ca3af;
+  border-radius: 50%;
+  animation: loading-dot 1.4s infinite;
+}
+
+.loading-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.loading-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes loading-dot {
+  0%, 60%, 100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.loading-text {
+  font-size: 14px;
+  color: #6b7280;
 }
 
 .typing-dot {
